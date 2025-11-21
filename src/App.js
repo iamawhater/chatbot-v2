@@ -53,7 +53,7 @@ const CustomChatbotCreator = () => {
     formData.append('chatbot_name', chatbotName);
 
     try {
-      const response = await fetch('http://localhost:8000/create-chatbot', {
+      const response = await fetch('https://yourchatbot.ddns.net/create-chatbot', {
         method: 'POST',
         body: formData,
       });
@@ -95,7 +95,7 @@ const CustomChatbotCreator = () => {
     setError(null);
 
     try {
-      const response = await fetch('http://localhost:8000/chat', {
+      const response = await fetch('https://yourchatbot.ddns.net/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
