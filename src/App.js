@@ -253,6 +253,27 @@ const CustomChatbotCreator = () => {
   if (showUploadForm) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
+        {/* Side Buttons */}
+        <div className="fixed left-4 top-1/2 transform -translate-y-1/2 z-10">
+          <button
+            onClick={() => setShowInfoModal(true)}
+            className="bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 px-6 py-4 rounded-xl font-medium transition-all duration-200 backdrop-blur-sm border border-purple-500/30 hover:border-purple-500/50 shadow-lg hover:shadow-xl flex items-center gap-3 group"
+          >
+            <Zap className="w-5 h-5 text-purple-400 group-hover:text-purple-300 transition-colors" />
+            How it works
+          </button>
+        </div>
+
+        <div className="fixed right-4 top-1/2 transform -translate-y-1/2 z-10">
+          <button
+            onClick={() => setShowInfoModal(true)}
+            className="bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 px-6 py-4 rounded-xl font-medium transition-all duration-200 backdrop-blur-sm border border-green-500/30 hover:border-green-500/50 shadow-lg hover:shadow-xl flex items-center gap-3 group"
+          >
+            <Shield className="w-5 h-5 text-green-400 group-hover:text-green-300 transition-colors" />
+            Data Privacy
+          </button>
+        </div>
+
         <div className="w-full max-w-2xl bg-slate-800/50 backdrop-blur-xl rounded-2xl shadow-2xl border border-purple-500/20 p-8">
           
           {/* History Button */}
@@ -387,17 +408,9 @@ const CustomChatbotCreator = () => {
               )}
             </button>
 
-            {/* Info & Credits Section */}
+            {/* Credits Section */}
             <div className="mt-8 pt-6 border-t border-slate-700">
-              <button
-                onClick={() => setShowInfoModal(true)}
-                className="w-full text-slate-400 hover:text-slate-300 text-sm flex items-center justify-center gap-2 transition-colors"
-              >
-                <Info className="w-4 h-4" />
-                How it works & Data Privacy
-              </button>
-              
-              <div className="text-center mt-4 text-slate-500 text-xs">
+              <div className="text-center text-slate-500 text-xs">
                 <p>Built with ❤️ by <span className="text-purple-400 font-medium">Alok Dahal</span></p>
                 <a 
                   href="mailto:alokdahal5@gmail.com" 
