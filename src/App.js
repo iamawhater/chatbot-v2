@@ -119,7 +119,7 @@ const CustomChatbotCreator = () => {
       setBotHistory(prev => [newBot, ...prev]);
       
     } catch (err) {
-      setError('Failed to create chatbot. Make sure the backend is running on http://localhost:8000');
+      setError('Failed to create chatbot. Make sure the backend is running on server');
       console.error('Error:', err);
     } finally {
       setIsUploading(false);
@@ -141,7 +141,7 @@ const CustomChatbotCreator = () => {
     setError(null);
 
     try {
-      const response = await fetch('https://yourchatbot.ddns.net/create-chatbot', {
+      const response = await fetch('https://yourchatbot.ddns.net/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
