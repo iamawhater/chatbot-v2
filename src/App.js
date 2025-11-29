@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, AlertCircle, Upload, X, FileText, Sparkles } from 'lucide-react';
+import { Send, Bot, User, Loader2, AlertCircle, Upload, X, FileText, Sparkles, History, Menu, Plus, MessageSquare, Trash2, Info, Shield, Zap } from 'lucide-react';
 
 const CustomChatbotCreator = () => {
   const [messages, setMessages] = useState([]);
@@ -10,11 +10,25 @@ const CustomChatbotCreator = () => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isChatbotReady, setIsChatbotReady] = useState(false);
-  const [sessionId, setSessionId] = useState(null);
+  const [currentSessionId, setCurrentSessionId] = useState(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showUploadForm, setShowUploadForm] = useState(true);
+  const [showInfoModal, setShowInfoModal] = useState(false);
+  
+  // Bot history stored in localStorage
+  const [botHistory, setBotHistory] = useState(() => {
+    const saved = localStorage.getItem('chatbotHistory');
+    return saved ? JSON.parse(saved) : [];
+  });
   
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  // Save bot history to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('chatbotHistory', JSON.stringify(botHistory));
+  }, [botHistory]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -27,7 +41,6 @@ const CustomChatbotCreator = () => {
   const handleFileSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
-      // Accept .txt, .docx, .pdf
       const validTypes = ['text/plain', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/pdf'];
       if (validTypes.includes(file.type)) {
         setSelectedFile(file);
@@ -36,6 +49,22 @@ const CustomChatbotCreator = () => {
         setError('Please upload a .txt, .docx, or .pdf file');
         setSelectedFile(null);
       }
+    }
+  };
+
+  const saveCurrentConversation = () => {
+    if (currentSessionId && messages.length > 0) {
+      setBotHistory(prev => {
+        const existing = prev.find(bot => bot.sessionId === currentSessionId);
+        if (existing) {
+          return prev.map(bot => 
+            bot.sessionId === currentSessionId 
+              ? { ...bot, messages, lastUpdated: new Date().toISOString() }
+              : bot
+          );
+        }
+        return prev;
+      });
     }
   };
 
@@ -53,7 +82,7 @@ const CustomChatbotCreator = () => {
     formData.append('chatbot_name', chatbotName);
 
     try {
-      const response = await fetch('https://yourchatbot.ddns.net/create-chatbot', {
+      const response = await fetch('http://localhost:8000/create-chatbot', {
         method: 'POST',
         body: formData,
       });
@@ -63,14 +92,31 @@ const CustomChatbotCreator = () => {
       }
 
       const data = await response.json();
-      setSessionId(data.session_id);
-      setIsChatbotReady(true);
+      const sessionId = data.session_id;
       
-      setMessages([{
+      setCurrentSessionId(sessionId);
+      setIsChatbotReady(true);
+      setShowUploadForm(false);
+      
+      const welcomeMessage = {
         role: 'assistant',
         content: `Hello! I'm ${chatbotName}, your custom AI assistant. I'm here to answer questions based on the document you uploaded. What would you like to know?`,
         timestamp: new Date()
-      }]);
+      };
+      
+      setMessages([welcomeMessage]);
+      
+      // Add to bot history
+      const newBot = {
+        sessionId,
+        name: chatbotName,
+        fileName: selectedFile.name,
+        createdAt: new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+        messages: [welcomeMessage]
+      };
+      
+      setBotHistory(prev => [newBot, ...prev]);
       
     } catch (err) {
       setError('Failed to create chatbot. Make sure the backend is running on http://localhost:8000');
@@ -95,14 +141,14 @@ const CustomChatbotCreator = () => {
     setError(null);
 
     try {
-      const response = await fetch('https://yourchatbot.ddns.net/chat', {
+      const response = await fetch('http://localhost:8000/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
           question: input,
-          session_id: sessionId 
+          session_id: currentSessionId 
         }),
       });
 
@@ -118,7 +164,18 @@ const CustomChatbotCreator = () => {
         timestamp: new Date()
       };
 
-      setMessages(prev => [...prev, assistantMessage]);
+      setMessages(prev => {
+        const updated = [...prev, assistantMessage];
+        // Update history
+        setBotHistory(prevHistory => 
+          prevHistory.map(bot => 
+            bot.sessionId === currentSessionId 
+              ? { ...bot, messages: updated, lastUpdated: new Date().toISOString() }
+              : bot
+          )
+        );
+        return updated;
+      });
     } catch (err) {
       setError('Failed to get response. Please try again.');
       console.error('Error:', err);
@@ -134,34 +191,115 @@ const CustomChatbotCreator = () => {
     }
   };
 
-  const resetChatbot = () => {
+  const loadBot = (bot) => {
+    saveCurrentConversation();
+    setCurrentSessionId(bot.sessionId);
+    setMessages(bot.messages);
+    setChatbotName(bot.name);
+    setIsChatbotReady(true);
+    setShowUploadForm(false);
+    setShowHistory(false);
+  };
+
+  const deleteBot = (sessionId, e) => {
+    e.stopPropagation();
+    if (window.confirm('Are you sure you want to delete this bot and its conversation history?')) {
+      setBotHistory(prev => prev.filter(bot => bot.sessionId !== sessionId));
+      if (currentSessionId === sessionId) {
+        resetToUploadScreen();
+      }
+    }
+  };
+
+  const resetToUploadScreen = () => {
+    saveCurrentConversation();
     setIsChatbotReady(false);
+    setShowUploadForm(true);
     setMessages([]);
     setSelectedFile(null);
     setChatbotName('');
-    setSessionId(null);
+    setCurrentSessionId(null);
     setError(null);
   };
 
+  const createNewBot = () => {
+    saveCurrentConversation();
+    resetToUploadScreen();
+  };
+
   const formatTime = (date) => {
-    return date.toLocaleTimeString('en-US', { 
+    return new Date(date).toLocaleTimeString('en-US', { 
       hour: '2-digit', 
       minute: '2-digit' 
     });
   };
 
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diff = now - date;
+    const hours = diff / (1000 * 60 * 60);
+    
+    if (hours < 24) {
+      return 'Today';
+    } else if (hours < 48) {
+      return 'Yesterday';
+    } else {
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+  };
+
   // Upload Screen
-  if (!isChatbotReady) {
+  if (showUploadForm) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
         <div className="w-full max-w-2xl bg-slate-800/50 backdrop-blur-xl rounded-2xl shadow-2xl border border-purple-500/20 p-8">
           
+          {/* History Button */}
+          {botHistory.length > 0 && (
+            <button
+              onClick={() => setShowHistory(true)}
+              className="absolute top-4 right-4 bg-slate-700/50 hover:bg-slate-600/50 text-slate-200 px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 border border-slate-600/50"
+            >
+              <History className="w-4 h-4" />
+              My Bots ({botHistory.length})
+            </button>
+          )}
+
           <div className="text-center mb-8">
             <div className="inline-block bg-gradient-to-br from-purple-500 to-blue-500 p-4 rounded-2xl mb-4">
               <Sparkles className="w-12 h-12 text-white" />
             </div>
             <h1 className="text-3xl font-bold text-white mb-2">Create Your Custom Chatbot</h1>
-            <p className="text-slate-300">Upload your document and give your chatbot a name</p>
+            <p className="text-slate-300 mb-6">Turn any document into an AI assistant in 3 simple steps</p>
+            
+            {/* Steps Guide */}
+            <div className="flex items-center justify-center gap-4 mb-6">
+              <div className="flex items-center gap-3">
+                <div className="bg-purple-500/20 text-purple-300 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border-2 border-purple-500">
+                  1
+                </div>
+                <span className="text-slate-300 text-sm">Name your bot</span>
+              </div>
+              
+              <div className="w-8 h-0.5 bg-slate-600"></div>
+              
+              <div className="flex items-center gap-3">
+                <div className="bg-purple-500/20 text-purple-300 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border-2 border-purple-500">
+                  2
+                </div>
+                <span className="text-slate-300 text-sm">Upload file</span>
+              </div>
+              
+              <div className="w-8 h-0.5 bg-slate-600"></div>
+              
+              <div className="flex items-center gap-3">
+                <div className="bg-purple-500/20 text-purple-300 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border-2 border-purple-500">
+                  3
+                </div>
+                <span className="text-slate-300 text-sm">Happy chatting!</span>
+              </div>
+            </div>
           </div>
 
           {error && (
@@ -174,7 +312,6 @@ const CustomChatbotCreator = () => {
           )}
 
           <div className="space-y-6">
-            {/* Chatbot Name */}
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">
                 Chatbot Name
@@ -188,7 +325,6 @@ const CustomChatbotCreator = () => {
               />
             </div>
 
-            {/* File Upload */}
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">
                 Upload Document
@@ -233,7 +369,6 @@ const CustomChatbotCreator = () => {
               </div>
             </div>
 
-            {/* Create Button */}
             <button
               onClick={createChatbot}
               disabled={!selectedFile || !chatbotName.trim() || isUploading}
@@ -251,8 +386,228 @@ const CustomChatbotCreator = () => {
                 </>
               )}
             </button>
+
+            {/* Info & Credits Section */}
+            <div className="mt-8 pt-6 border-t border-slate-700">
+              <button
+                onClick={() => setShowInfoModal(true)}
+                className="w-full text-slate-400 hover:text-slate-300 text-sm flex items-center justify-center gap-2 transition-colors"
+              >
+                <Info className="w-4 h-4" />
+                How it works & Data Privacy
+              </button>
+              
+              <div className="text-center mt-4 text-slate-500 text-xs">
+                <p>Built with ❤️ by <span className="text-purple-400 font-medium">Alok Dahal</span></p>
+                <a 
+                  href="mailto:alokdahal5@gmail.com" 
+                  className="text-slate-400 hover:text-purple-400 transition-colors"
+                >
+                  alokdahal5@gmail.com
+                </a>
+              </div>
+            </div>
           </div>
         </div>
+
+        {/* Info Modal */}
+        {showInfoModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-slate-800 rounded-2xl shadow-2xl border border-purple-500/20 w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+              <div className="p-6 border-b border-slate-700">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-purple-500/20 p-2 rounded-lg">
+                      <Info className="w-5 h-5 text-purple-400" />
+                    </div>
+                    <h2 className="text-xl font-bold text-white">How It Works & Privacy</h2>
+                  </div>
+                  <button
+                    onClick={() => setShowInfoModal(false)}
+                    className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+                  >
+                    <X className="w-5 h-5 text-slate-400" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {/* How RAG Works */}
+                <div className="bg-slate-700/30 rounded-xl p-5 border border-slate-600/50">
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="bg-blue-500/20 p-2 rounded-lg">
+                      <Zap className="w-5 h-5 text-blue-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-white font-semibold mb-2">How RAG Technology Works</h3>
+                      <p className="text-slate-300 text-sm leading-relaxed mb-3">
+                        This chatbot uses <span className="text-purple-400 font-medium">Retrieval-Augmented Generation (RAG)</span>, 
+                        a cutting-edge AI technique that combines document search with language generation.
+                      </p>
+                      <div className="space-y-2 text-sm text-slate-400">
+                        <p><span className="text-purple-400">1. Document Processing:</span> Your uploaded file is split into chunks and converted into mathematical vectors (embeddings).</p>
+                        <p><span className="text-purple-400">2. Smart Retrieval:</span> When you ask a question, the system finds the most relevant chunks from your document.</p>
+                        <p><span className="text-purple-400">3. AI Generation:</span> The AI reads those relevant chunks and generates a natural, accurate answer based only on your document.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Data Privacy */}
+                <div className="bg-slate-700/30 rounded-xl p-5 border border-slate-600/50">
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="bg-green-500/20 p-2 rounded-lg">
+                      <Shield className="w-5 h-5 text-green-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-white font-semibold mb-2">Your Data is Safe & Private</h3>
+                      <div className="space-y-2 text-sm text-slate-300">
+                        <div className="flex items-start gap-2">
+                          <div className="w-1.5 h-1.5 bg-green-400 rounded-full mt-1.5"></div>
+                          <p><span className="font-medium">Local Storage:</span> All conversations are stored locally in your browser. No one else can access them.</p>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <div className="w-1.5 h-1.5 bg-green-400 rounded-full mt-1.5"></div>
+                          <p><span className="font-medium">Temporary Processing:</span> Your documents are processed in real-time and can be deleted by you at any time.</p>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <div className="w-1.5 h-1.5 bg-green-400 rounded-full mt-1.5"></div>
+                          <p><span className="font-medium">No Training:</span> Your data is never used to train AI models or shared with third parties.</p>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <div className="w-1.5 h-1.5 bg-green-400 rounded-full mt-1.5"></div>
+                          <p><span className="font-medium">Secure Connection:</span> All communications are encrypted via HTTPS.</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Credits */}
+                <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 rounded-xl p-5 border border-purple-500/30">
+                  <div className="text-center">
+                    <div className="inline-block bg-gradient-to-br from-purple-500 to-blue-500 p-3 rounded-xl mb-3">
+                      <Sparkles className="w-6 h-6 text-white" />
+                    </div>
+                    <h3 className="text-white font-semibold mb-2">Built by Alok Dahal</h3>
+                    <p className="text-slate-300 text-sm mb-3">
+                      Custom Chatbot Creator - Powered by RAG Technology
+                    </p>
+                    <a 
+                      href="mailto:alokdahal5@gmail.com"
+                      className="inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                        <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                      </svg>
+                      Contact Me
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* History Sidebar */}
+        {showHistory && (
+          <div className="fixed inset-y-0 left-0 z-50 flex">
+            <div className="w-full max-w-md bg-slate-800/95 backdrop-blur-sm shadow-2xl border-r border-purple-500/20 flex flex-col animate-slide-in-left">
+              <div className="p-6 border-b border-slate-700 bg-gradient-to-r from-purple-600/20 to-blue-600/20">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-purple-500/20 p-2 rounded-lg">
+                      <History className="w-6 h-6 text-purple-400" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold text-white">My Chatbots</h2>
+                      <p className="text-slate-400 text-sm">{botHistory.length} bot{botHistory.length !== 1 ? 's' : ''} created</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowHistory(false)}
+                    className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+                  >
+                    <X className="w-5 h-5 text-slate-400" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {botHistory.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Bot className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+                    <p className="text-slate-400 text-sm">No chatbots yet</p>
+                    <p className="text-slate-500 text-xs mt-1">Create your first one!</p>
+                  </div>
+                ) : (
+                  botHistory.map((bot) => (
+                    <div
+                      key={bot.sessionId}
+                      onClick={() => loadBot(bot)}
+                      className={`rounded-xl p-4 cursor-pointer transition-all border group ${
+                        bot.sessionId === currentSessionId 
+                          ? 'bg-purple-600/20 border-purple-500 shadow-lg' 
+                          : 'bg-slate-700/50 hover:bg-slate-700 border-slate-600/50 hover:border-purple-500/50'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2 flex-1">
+                          <div className={`p-1.5 rounded-lg ${
+                            bot.sessionId === currentSessionId 
+                              ? 'bg-purple-500/30' 
+                              : 'bg-purple-500/20'
+                          }`}>
+                            <Bot className="w-4 h-4 text-purple-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-white font-semibold text-sm truncate">{bot.name}</h3>
+                            {bot.sessionId === currentSessionId && (
+                              <span className="text-xs bg-purple-500/30 text-purple-300 px-2 py-0.5 rounded-full inline-block mt-1">Active</span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={(e) => deleteBot(bot.sessionId, e)}
+                          className="p-1.5 hover:bg-red-500/20 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-400" />
+                        </button>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 text-xs text-slate-400 mb-2">
+                        <FileText className="w-3 h-3 flex-shrink-0" />
+                        <span className="truncate">{bot.fileName}</span>
+                      </div>
+                      
+                      <div className="flex items-center justify-between text-xs text-slate-500">
+                        <span className="flex items-center gap-1">
+                          <MessageSquare className="w-3 h-3" />
+                          {bot.messages.length} msg
+                        </span>
+                        <span>{formatDate(bot.lastUpdated)}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              
+              <div className="p-4 border-t border-slate-700 bg-slate-800/80">
+                <button
+                  onClick={() => {
+                    setShowHistory(false);
+                    createNewBot();
+                  }}
+                  className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-xl px-4 py-3 font-medium transition-all flex items-center justify-center gap-2"
+                >
+                  <Plus className="w-5 h-5" />
+                  Create New Bot
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -274,16 +629,25 @@ const CustomChatbotCreator = () => {
                 <p className="text-purple-100 text-sm">Custom AI Assistant</p>
               </div>
             </div>
-            <button
-              onClick={resetChatbot}
-              className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors backdrop-blur-sm"
-            >
-              New Chatbot
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowHistory(true)}
+                className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors backdrop-blur-sm flex items-center gap-2"
+              >
+                <History className="w-4 h-4" />
+                My Bots
+              </button>
+              <button
+                onClick={createNewBot}
+                className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors backdrop-blur-sm flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                New Bot
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Error Banner */}
         {error && (
           <div className="bg-red-500/10 border-l-4 border-red-500 p-4 m-4 rounded-r-lg">
             <div className="flex items-start gap-3">
@@ -377,11 +741,219 @@ const CustomChatbotCreator = () => {
               )}
             </button>
           </div>
-          <p className="text-xs text-slate-400 mt-3 text-center">
-            Press Enter to send • Shift + Enter for new line
-          </p>
+          <div className="flex items-center justify-between mt-3">
+            <p className="text-xs text-slate-400">
+              Press Enter to send • Shift + Enter for new line
+            </p>
+            <button
+              onClick={() => setShowInfoModal(true)}
+              className="text-xs text-slate-400 hover:text-purple-400 transition-colors flex items-center gap-1"
+            >
+              <Info className="w-3 h-3" />
+              How it works
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Info Modal (same as upload screen) */}
+      {showInfoModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-800 rounded-2xl shadow-2xl border border-purple-500/20 w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-slate-700">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="bg-purple-500/20 p-2 rounded-lg">
+                    <Info className="w-5 h-5 text-purple-400" />
+                  </div>
+                  <h2 className="text-xl font-bold text-white">How It Works & Privacy</h2>
+                </div>
+                <button
+                  onClick={() => setShowInfoModal(false)}
+                  className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* How RAG Works */}
+              <div className="bg-slate-700/30 rounded-xl p-5 border border-slate-600/50">
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="bg-blue-500/20 p-2 rounded-lg">
+                    <Zap className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-semibold mb-2">How RAG Technology Works</h3>
+                    <p className="text-slate-300 text-sm leading-relaxed mb-3">
+                      This chatbot uses <span className="text-purple-400 font-medium">Retrieval-Augmented Generation (RAG)</span>, 
+                      a cutting-edge AI technique that combines document search with language generation.
+                    </p>
+                    <div className="space-y-2 text-sm text-slate-400">
+                      <p><span className="text-purple-400">1. Document Processing:</span> Your uploaded file is split into chunks and converted into mathematical vectors (embeddings).</p>
+                      <p><span className="text-purple-400">2. Smart Retrieval:</span> When you ask a question, the system finds the most relevant chunks from your document.</p>
+                      <p><span className="text-purple-400">3. AI Generation:</span> The AI reads those relevant chunks and generates a natural, accurate answer based only on your document.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Data Privacy */}
+              <div className="bg-slate-700/30 rounded-xl p-5 border border-slate-600/50">
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="bg-green-500/20 p-2 rounded-lg">
+                    <Shield className="w-5 h-5 text-green-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-semibold mb-2">Your Data is Safe & Private</h3>
+                    <div className="space-y-2 text-sm text-slate-300">
+                      <div className="flex items-start gap-2">
+                        <div className="w-1.5 h-1.5 bg-green-400 rounded-full mt-1.5"></div>
+                        <p><span className="font-medium">Local Storage:</span> All conversations are stored locally in your browser. No one else can access them.</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="w-1.5 h-1.5 bg-green-400 rounded-full mt-1.5"></div>
+                        <p><span className="font-medium">Temporary Processing:</span> Your documents are processed in real-time and can be deleted by you at any time.</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="w-1.5 h-1.5 bg-green-400 rounded-full mt-1.5"></div>
+                        <p><span className="font-medium">No Training:</span> Your data is never used to train AI models or shared with third parties.</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="w-1.5 h-1.5 bg-green-400 rounded-full mt-1.5"></div>
+                        <p><span className="font-medium">Secure Connection:</span> All communications are encrypted via HTTPS.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Credits */}
+              <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 rounded-xl p-5 border border-purple-500/30">
+                <div className="text-center">
+                  <div className="inline-block bg-gradient-to-br from-purple-500 to-blue-500 p-3 rounded-xl mb-3">
+                    <Sparkles className="w-6 h-6 text-white" />
+                  </div>
+                  <h3 className="text-white font-semibold mb-2">Built by Alok Dahal</h3>
+                  <p className="text-slate-300 text-sm mb-3">
+                    Custom Chatbot Creator - Powered by RAG Technology
+                  </p>
+                  <a 
+                    href="mailto:alokdahal5@gmail.com"
+                    className="inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                      <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                    </svg>
+                    Contact Me
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* History Sidebar Modal */}
+      {showHistory && (
+        <div className="fixed inset-y-0 left-0 z-50 flex">
+          <div className="w-full max-w-md bg-slate-800/95 backdrop-blur-sm shadow-2xl border-r border-purple-500/20 flex flex-col animate-slide-in-left">
+            <div className="p-6 border-b border-slate-700 bg-gradient-to-r from-purple-600/20 to-blue-600/20">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="bg-purple-500/20 p-2 rounded-lg">
+                    <History className="w-6 h-6 text-purple-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-white">My Chatbots</h2>
+                    <p className="text-slate-400 text-sm">{botHistory.length} bot{botHistory.length !== 1 ? 's' : ''} created</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowHistory(false)}
+                  className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {botHistory.length === 0 ? (
+                <div className="text-center py-12">
+                  <Bot className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+                  <p className="text-slate-400 text-sm">No chatbots yet</p>
+                  <p className="text-slate-500 text-xs mt-1">Create your first one!</p>
+                </div>
+              ) : (
+                botHistory.map((bot) => (
+                  <div
+                    key={bot.sessionId}
+                    onClick={() => loadBot(bot)}
+                    className={`rounded-xl p-4 cursor-pointer transition-all border group ${
+                      bot.sessionId === currentSessionId 
+                        ? 'bg-purple-600/20 border-purple-500 shadow-lg' 
+                        : 'bg-slate-700/50 hover:bg-slate-700 border-slate-600/50 hover:border-purple-500/50'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-2 flex-1">
+                        <div className={`p-1.5 rounded-lg ${
+                          bot.sessionId === currentSessionId 
+                            ? 'bg-purple-500/30' 
+                            : 'bg-purple-500/20'
+                        }`}>
+                          <Bot className="w-4 h-4 text-purple-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-white font-semibold text-sm truncate">{bot.name}</h3>
+                          {bot.sessionId === currentSessionId && (
+                            <span className="text-xs bg-purple-500/30 text-purple-300 px-2 py-0.5 rounded-full inline-block mt-1">Active</span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => deleteBot(bot.sessionId, e)}
+                        className="p-1.5 hover:bg-red-500/20 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                      >
+                        <Trash2 className="w-4 h-4 text-red-400" />
+                      </button>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 text-xs text-slate-400 mb-2">
+                      <FileText className="w-3 h-3 flex-shrink-0" />
+                      <span className="truncate">{bot.fileName}</span>
+                    </div>
+                    
+                    <div className="flex items-center justify-between text-xs text-slate-500">
+                      <span className="flex items-center gap-1">
+                        <MessageSquare className="w-3 h-3" />
+                        {bot.messages.length} msg
+                      </span>
+                      <span>{formatDate(bot.lastUpdated)}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            
+            <div className="p-4 border-t border-slate-700 bg-slate-800/80">
+              <button
+                onClick={() => {
+                  setShowHistory(false);
+                  createNewBot();
+                }}
+                className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-xl px-4 py-3 font-medium transition-all flex items-center justify-center gap-2"
+              >
+                <Plus className="w-5 h-5" />
+                Create New Bot
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style jsx>{`
         @keyframes fade-in {
@@ -396,6 +968,28 @@ const CustomChatbotCreator = () => {
         }
         .animate-fade-in {
           animation: fade-in 0.3s ease-out;
+        }
+        @keyframes slide-in {
+          from {
+            transform: translateX(100%);
+          }
+          to {
+            transform: translateX(0);
+          }
+        }
+        .animate-slide-in {
+          animation: slide-in 0.3s ease-out;
+        }
+        @keyframes slide-in-left {
+          from {
+            transform: translateX(-100%);
+          }
+          to {
+            transform: translateX(0);
+          }
+        }
+        .animate-slide-in-left {
+          animation: slide-in-left 0.3s ease-out;
         }
       `}</style>
     </div>
